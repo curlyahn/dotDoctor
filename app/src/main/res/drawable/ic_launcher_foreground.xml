@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 108dp 캔버스, 가운데 66dp 안전 영역: 흐린 점 셋이 이어지다 라임색 십자 점으로 끝난다 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#55555A" android:pathData="M34,68a3,3 0,1 1,0 6a3,3 0,1 1,0 -6z" />
+    <path android:fillColor="#8B8B90" android:pathData="M42,58a3.5,3.5 0,1 1,0 7a3.5,3.5 0,1 1,0 -7z" />
+    <!-- 라임 원 -->
+    <path android:fillColor="#D4FF3A" android:pathData="M62,30a14,14 0,1 1,0 28a14,14 0,1 1,0 -28z" />
+    <!-- 원 안 십자 -->
+    <path android:fillColor="#0B0B0C" android:pathData="M59.5,36h5v5.5h5.5v5h-5.5v5.5h-5v-5.5h-5.5v-5h5.5z" />
+</vector>

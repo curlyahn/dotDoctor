@@ -1,0 +1,28 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+
+# ── 개인 건강 데이터는 절대 저장소에 올리지 않는다 ──
+# 검사 결과 HTML·내보낸 데이터·키 파일
+*.html
+*.htm
+*.csv
+*.xlsx
+*.pdf
+*.db
+*.sqlite
+*.keystore
+*.jks
+*.apk
+/data/
+/private/
+/exports/
+secrets.*
+*.env
