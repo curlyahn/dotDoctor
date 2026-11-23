@@ -23,6 +23,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +73,29 @@ fun SettingsScreen(vm: MainViewModel, padding: PaddingValues, onOpenAbout: () ->
             )
             Text("걸음·수면·심박·체중·혈압·혈당·산소포화도·운동을 읽기만 해요. 쓰거나 지우지 않아요.", style = MaterialTheme.typography.bodySmall, color = Dot.Faint)
             if (available) BigButton(if (granted.isEmpty()) "연결하기" else "허용 항목 바꾸기") { hcLauncher.launch(HealthReader.PERMISSIONS) }
+            // 점검: 항목별 권한과 최근 7일 기록 개수 (값은 안 보여 줌)
+            val scope = rememberCoroutineScope()
+            var diag by remember { mutableStateOf<List<Pair<String, String>>?>(null) }
+            GhostButton("점검하기", Modifier.fillMaxWidth()) { scope.launch { diag = vm.health.diagnose() } }
+            diag?.forEach { (name, state) ->
+                Row(Modifier.fillMaxWidth()) {
+                    Text(name, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        state, Modifier.weight(0.6f), style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            state.startsWith("최근") -> Dot.Lime
+                            state.startsWith("권한") || state.contains("오류") -> Dot.Coral
+                            else -> Dot.Amber
+                        },
+                    )
+                }
+            }
+            if (diag?.any { it.second == "최근 7일 기록 없음" } == true) {
+                Text(
+                    "'기록 없음'이면 삼성헬스 → 설정 → 헬스 커넥트(데이터 및 권한)에서 그 항목을 헬스 커넥트에 쓰도록 허용해 주세요.",
+                    style = MaterialTheme.typography.bodySmall, color = Dot.Muted,
+                )
+            }
         }
 
         SectionLabel("Claude API")

@@ -40,6 +40,8 @@ data class HealthWindow(
     val baseline: List<DayHealth>,
     val glucoseWeek: List<Double>,
     val spo2Week: List<Double>,
+    /** 읽지 못한 항목과 이유 (리포트 미리 보기에 보여 줘서 원인을 알 수 있게) */
+    val problems: List<String> = emptyList(),
 )
 
 /** 헬스 커넥트(삼성헬스가 동기화한 데이터) 읽기 전용. 휴대폰 안에서만 읽고 계산한다. */
@@ -73,6 +75,7 @@ class HealthReader(private val context: Context) {
         val ok = granted()
         if (ok.isEmpty()) return null
         val zone = ZoneId.systemDefault()
+        // 다른 앱 데이터는 권한을 준 날로부터 30일 전까지만 읽을 수 있다 (헬스 커넥트 규칙)
         val from = weekStart.minusDays(28)
         val to = weekStart.plusDays(7)
 
@@ -91,30 +94,40 @@ class HealthReader(private val context: Context) {
         }
 
         val days = mutableMapOf<LocalDate, DayHealth>()
-        if (metrics.isNotEmpty()) {
-            val groups = runCatching {
+        val problems = mutableListOf<String>()
+        if (!has(StepsRecord::class)) problems += "걸음 수 읽기 권한 없음"
+
+        // 항목마다 따로 묻는다: 하나가 실패해도(예: 운동 기록 형식 문제) 걸음 수 같은 다른 항목은 읽히도록
+        suspend fun daily(name: String, set: Set<AggregateMetric<*>>, apply: (DayHealth, androidx.health.connect.client.aggregate.AggregationResult) -> DayHealth) {
+            if (set.isEmpty()) return
+            runCatching {
                 client.aggregateGroupByPeriod(
                     AggregateGroupByPeriodRequest(
-                        metrics = metrics,
+                        metrics = set,
                         timeRangeFilter = TimeRangeFilter.between(from.atStartOfDay(), to.atStartOfDay()),
                         timeRangeSlicer = Period.ofDays(1),
                     )
                 )
-            }.getOrDefault(emptyList())
-            for (g in groups) {
-                val d = g.startTime.toLocalDate()
-                val r = g.result
-                days[d] = DayHealth(
-                    date = d,
-                    steps = r[StepsRecord.COUNT_TOTAL],
-                    restingHr = r[RestingHeartRateRecord.BPM_AVG],
-                    avgHr = r[HeartRateRecord.BPM_AVG],
-                    weightKg = r[WeightRecord.WEIGHT_AVG]?.inKilograms,
-                    sys = r[BloodPressureRecord.SYSTOLIC_AVG]?.inMillimetersOfMercury,
-                    dia = r[BloodPressureRecord.DIASTOLIC_AVG]?.inMillimetersOfMercury,
-                    exerciseMin = r[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.toMinutes(),
-                )
-            }
+            }.onSuccess { groups ->
+                for (g in groups) {
+                    val d = g.startTime.toLocalDate()
+                    days[d] = apply(days[d] ?: DayHealth(d), g.result)
+                }
+            }.onFailure { problems += "$name 읽기 오류(${it.javaClass.simpleName})" }
+        }
+
+        daily("걸음 수", metrics.filter { it == StepsRecord.COUNT_TOTAL }.toSet()) { d, r -> d.copy(steps = r[StepsRecord.COUNT_TOTAL]) }
+        daily("안정 심박", metrics.filter { it == RestingHeartRateRecord.BPM_AVG }.toSet()) { d, r -> d.copy(restingHr = r[RestingHeartRateRecord.BPM_AVG]) }
+        daily("심박", metrics.filter { it == HeartRateRecord.BPM_AVG }.toSet()) { d, r -> d.copy(avgHr = r[HeartRateRecord.BPM_AVG]) }
+        daily("체중", metrics.filter { it == WeightRecord.WEIGHT_AVG }.toSet()) { d, r -> d.copy(weightKg = r[WeightRecord.WEIGHT_AVG]?.inKilograms) }
+        daily("혈압", metrics.filter { it == BloodPressureRecord.SYSTOLIC_AVG || it == BloodPressureRecord.DIASTOLIC_AVG }.toSet()) { d, r ->
+            d.copy(sys = r[BloodPressureRecord.SYSTOLIC_AVG]?.inMillimetersOfMercury, dia = r[BloodPressureRecord.DIASTOLIC_AVG]?.inMillimetersOfMercury)
+        }
+        daily("운동", metrics.filter { it == ExerciseSessionRecord.EXERCISE_DURATION_TOTAL }.toSet()) { d, r ->
+            d.copy(exerciseMin = r[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.toMinutes())
+        }
+        if (has(StepsRecord::class) && days.values.none { it.steps != null && it.steps > 0 }) {
+            problems += "걸음 수 기록이 헬스 커넥트에 없음 (삼성헬스 → 설정 → 헬스 커넥트에서 걸음 수 동기화 확인)"
         }
 
         // 수면은 깬 날짜 기준으로 합친다 (밤 11시~아침 6시 → 아침 날짜)
@@ -147,6 +160,42 @@ class HealthReader(private val context: Context) {
             baseline = range(from, weekStart),
             glucoseWeek = glucose,
             spo2Week = spo2,
+            problems = problems,
         )
     }
+
+    /**
+     * 설정 화면 '점검하기'용: 항목별 권한과 최근 7일 기록 개수 (값은 보여 주지 않음, 휴대폰 밖으로도 안 나감)
+     */
+    suspend fun diagnose(): List<Pair<String, String>> {
+        val status = HealthConnectClient.getSdkStatus(context)
+        if (status != HealthConnectClient.SDK_AVAILABLE) {
+            return listOf("헬스 커넥트" to if (status == HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED) "업데이트 필요" else "사용할 수 없음")
+        }
+        val ok = granted()
+        val zone = ZoneId.systemDefault()
+        val range = TimeRangeFilter.between(LocalDate.now().minusDays(7).atStartOfDay(zone).toInstant(), java.time.Instant.now())
+        val out = mutableListOf<Pair<String, String>>()
+        out += check("걸음 수", ok, StepsRecord::class, range)
+        out += check("수면", ok, SleepSessionRecord::class, range)
+        out += check("심박", ok, HeartRateRecord::class, range)
+        out += check("안정 심박", ok, RestingHeartRateRecord::class, range)
+        out += check("체중", ok, WeightRecord::class, range)
+        out += check("혈압", ok, BloodPressureRecord::class, range)
+        out += check("혈당", ok, BloodGlucoseRecord::class, range)
+        out += check("산소포화도", ok, OxygenSaturationRecord::class, range)
+        out += check("운동", ok, ExerciseSessionRecord::class, range)
+        return out
+    }
+
+    private suspend fun <T : androidx.health.connect.client.records.Record> check(
+        name: String, ok: Set<String>, c: kotlin.reflect.KClass<T>, range: TimeRangeFilter,
+    ): Pair<String, String> =
+        name to if (HealthPermission.getReadPermission(c) !in ok) "권한 없음" else runCatching {
+            val res = client.readRecords(ReadRecordsRequest(c, range, pageSize = 1000))
+            val n = res.records.size
+            val sources = res.records.map { it.metadata.dataOrigin.packageName }.distinct()
+                .joinToString { if ("shealth" in it) "삼성헬스" else it.substringAfterLast('.') }
+            if (n == 0) "최근 7일 기록 없음" else "최근 7일 ${if (res.pageToken != null) "1000+" else n.toString()}건 · $sources"
+        }.getOrElse { "읽기 오류(${it.javaClass.simpleName})" }
 }

@@ -99,8 +99,9 @@ object ReportBuilder {
         // 헬스 커넥트
         sb.appendLine("## 이번 주 생활 데이터 (일평균, 괄호는 직전 4주 일평균)")
         if (health == null) {
-            sb.appendLine("- 헬스 커넥트 데이터 없음")
+            sb.appendLine("- 헬스 커넥트 데이터 없음 (연결 안 됨 또는 권한 없음)")
         } else {
+            health.problems.forEach { sb.appendLine("- (읽지 못함) $it") }
             fun line(name: String, unit: String, sel: (DayHealth) -> Double?, digits: Int = 0) {
                 val w = health.week.mapNotNull(sel)
                 val b = health.baseline.mapNotNull(sel)
