@@ -11,6 +11,8 @@ class DoctorApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 혹시 남은 약봉투 임시 사진이 있으면 지운다
+        java.io.File(cacheDir, "envelope").listFiles()?.forEach { it.delete() }
         WeeklyReminder.createChannel(this)
         WeeklyReminder.schedule(this)
     }

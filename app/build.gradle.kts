@@ -76,4 +76,8 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     // 삼성헬스 데이터는 헬스 커넥트를 거쳐 읽는다 (읽기 전용)
     implementation(libs.androidx.health.connect)
+    // 약봉투 글자 읽기: 한국어 모델을 앱에 포함 (휴대폰 안에서 처리, 사진을 보내지 않음)
+    implementation(libs.mlkit.text.korean)
+    // 사진 찍은 날짜 읽기
+    implementation(libs.androidx.exifinterface)
 }

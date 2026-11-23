@@ -9,7 +9,12 @@ import com.dot.doctor.data.LabItems
 import com.dot.doctor.data.LabResult
 import com.dot.doctor.data.LogEntry
 import com.dot.doctor.data.MedEvent
+import com.dot.doctor.data.Prescription
 import com.dot.doctor.data.Profile
+import com.dot.doctor.meds.EnvelopeDrug
+import com.dot.doctor.meds.EnvelopeOcr
+import com.dot.doctor.meds.EnvelopeParser
+import com.dot.doctor.report.Scrubber
 import com.dot.doctor.data.Report
 import com.dot.doctor.data.Settings
 import com.dot.doctor.health.HealthReader
@@ -36,6 +41,19 @@ sealed interface Draft {
     data class Failed(val message: String) : Draft
 }
 
+/** 약봉투 읽기 단계 */
+sealed interface Env {
+    data object None : Env
+    /** 휴대폰 안에서 글자 읽는 중 */
+    data object Reading : Env
+    /** 개인정보를 지운 글 미리 보기 (아직 아무것도 보내지 않음, 사용자가 더 지울 수 있음) */
+    data class Review(val text: String, val photoDate: String?) : Env
+    data object Sending : Env
+    /** 정리된 약 목록 확인·수정 (저장 전) */
+    data class Result(val dispensedDate: String, val drugs: List<EnvelopeDrug>) : Env
+    data class Failed(val message: String) : Env
+}
+
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val a = app as DoctorApp
     private val db = a.db
@@ -47,6 +65,75 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val logs: StateFlow<List<LogEntry>> = db.logs().all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val reports: StateFlow<List<Report>> = db.reports().all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val settings: StateFlow<Settings> = prefs.settings.stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
+    val prescriptions: StateFlow<List<Prescription>> = db.prescriptions().all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // ── 약봉투: 사진 → 휴대폰 안 글자 읽기 → 개인정보 지우기 → 미리 보기 → (보내기) → 확인·수정 → 저장 ──
+    private val _env = MutableStateFlow<Env>(Env.None)
+    val env = _env.asStateFlow()
+
+    /**
+     * @param uri 찍은 사진(앱 임시 파일) 또는 고른 사진
+     * @param tempFile 앱이 찍은 임시 파일이면 읽은 뒤 바로 지운다
+     */
+    fun readEnvelope(uri: Uri, tempFile: java.io.File?) = viewModelScope.launch {
+        _env.value = Env.Reading
+        val ctx = getApplication<Application>()
+        val r = runCatching {
+            val raw = EnvelopeOcr.read(ctx, uri)
+            val photoDate = if (tempFile != null) LocalDate.now().toString() else EnvelopeOcr.photoDate(ctx, uri)
+            if (raw.isBlank()) error("글자를 찾지 못했어요. 밝은 곳에서 봉투가 화면에 꽉 차게 다시 찍어 주세요")
+            Env.Review(EnvelopeOcr.clean(raw, prefs.now().blockWords), photoDate)
+        }
+        tempFile?.delete()
+        _env.value = r.getOrElse { Env.Failed(it.message ?: "글자를 읽지 못했어요") }
+    }
+
+    /** 미리 보기에서 '보내기'를 눌렀을 때만 호출된다 (글자만, 사진은 보내지 않음) */
+    fun sendEnvelope(text: String, photoDate: String?) = viewModelScope.launch {
+        val key = prefs.apiKey()
+        if (key.isNullOrBlank()) { _env.value = Env.Failed("설정에서 Claude API 키를 먼저 넣어 주세요"); return@launch }
+        _env.value = Env.Sending
+        // 사용자가 미리 보기에서 고친 글에도 한 번 더 지우기 적용
+        val safe = Scrubber.scrub(text, prefs.now().blockWords)
+        val r = runCatching {
+            val reply = ClaudeClient.ask(key, prefs.now().model, EnvelopeParser.SYSTEM_PROMPT, EnvelopeParser.userMessage(safe, photoDate))
+            val parsed = EnvelopeParser.parse(reply)
+            if (parsed.drugs.isEmpty()) error("약 이름을 찾지 못했어요. 직접 입력해 주세요")
+            val localDays = EnvelopeOcr.localDays(safe)
+            Env.Result(
+                dispensedDate = parsed.dispensedDate ?: EnvelopeOcr.localDispensedDate(safe) ?: photoDate ?: LocalDate.now().toString(),
+                drugs = parsed.drugs.map { if (it.days == null && localDays != null) it.copy(days = localDays) else it },
+            )
+        }
+        _env.value = r.getOrElse { Env.Failed(it.message ?: "정리하지 못했어요") }
+    }
+
+    /** 사진 없이 직접 입력할 때: 빈 확인 화면부터 */
+    fun manualPrescription() { _env.value = Env.Result(LocalDate.now().toString(), listOf(EnvelopeDrug(name = ""))) }
+
+    fun cancelEnvelope() { _env.value = Env.None }
+
+    fun savePrescriptions(dispensedDate: String, drugs: List<EnvelopeDrug>, source: String) = viewModelScope.launch {
+        val start = runCatching { LocalDate.parse(dispensedDate) }.getOrElse { _toast.value = "조제일자를 yyyy-MM-dd 로 넣어 주세요"; return@launch }
+        val items = drugs.filter { it.name.isNotBlank() }.map { d ->
+            Prescription(
+                dispensedDate = start.toString(),
+                startDate = start.toString(),
+                endDate = d.days?.let { start.plusDays((it - 1).toLong()).toString() },
+                name = d.name.trim(),
+                dose = d.dose.trim().ifEmpty { null },
+                schedule = d.schedule.trim().ifEmpty { null },
+                purpose = d.purpose.trim().ifEmpty { null },
+                source = source,
+            )
+        }
+        if (items.isEmpty()) { _toast.value = "저장할 약이 없어요"; return@launch }
+        db.prescriptions().insertAll(items)
+        _env.value = Env.None
+        _toast.value = "약 ${items.size}가지를 저장했어요"
+    }
+
+    fun deletePrescription(id: Long) = viewModelScope.launch { db.prescriptions().delete(id) }
 
     private val _draft = MutableStateFlow<Draft>(Draft.None)
     val draft = _draft.asStateFlow()
@@ -117,7 +204,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val r = runCatching {
             val h = health.read(weekStart)
             val logs = db.logs().between(weekStart.toString(), weekStart.plusDays(6).toString())
-            ReportBuilder.build(weekStart, prefs.now(), db.labs().allNow(), db.meds().allNow(), logs, h)
+            ReportBuilder.build(weekStart, prefs.now(), db.labs().allNow(), db.meds().allNow(), logs, h, db.prescriptions().allNow())
         }
         _draft.value = r.fold({ Draft.Preview(weekStart, it) }, { Draft.Failed(it.message ?: "요약을 만들지 못했어요") })
     }

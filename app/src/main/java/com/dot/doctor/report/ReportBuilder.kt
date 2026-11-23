@@ -4,6 +4,7 @@ import com.dot.doctor.data.LabItems
 import com.dot.doctor.data.LabResult
 import com.dot.doctor.data.LogEntry
 import com.dot.doctor.data.MedEvent
+import com.dot.doctor.data.Prescription
 import com.dot.doctor.data.Settings
 import com.dot.doctor.health.DayHealth
 import com.dot.doctor.health.HealthWindow
@@ -38,6 +39,7 @@ object ReportBuilder {
         meds: List<MedEvent>,
         logs: List<LogEntry>,
         health: HealthWindow?,
+        prescriptions: List<Prescription> = emptyList(),
     ): String {
         val p = settings.profile
         val block = settings.blockWords
@@ -63,6 +65,22 @@ object ReportBuilder {
         meds.forEach { m ->
             val k = when (m.kind) { "START" -> "시작/재개"; "STOP" -> "중단"; else -> "변경" }
             sb.appendLine("- ${m.date} ${Scrubber.scrub(m.name, block)} $k" + (m.note?.let { " (${Scrubber.scrub(it, block)})" } ?: ""))
+        }
+        sb.appendLine()
+
+        // 처방 약: 이번 주에 먹은 약 + 최근 6개월 처방
+        sb.appendLine("## 처방 약 (복용 기간)")
+        val ws = weekStart.toString()
+        val we = weekEnd.toString()
+        val since = weekStart.minusMonths(6).toString()
+        val shownRx = prescriptions.filter { (it.endDate ?: "9999") >= since }.sortedBy { it.startDate }
+        if (shownRx.isEmpty()) sb.appendLine("- 기록 없음")
+        shownRx.forEach { r ->
+            val taking = r.startDate <= we && (r.endDate ?: "9999") >= ws
+            val period = "${r.startDate} ~ ${r.endDate ?: "계속"}"
+            val detail = listOfNotNull(r.dose, r.schedule, r.purpose?.let { "($it)" }).joinToString(" ")
+            sb.appendLine("- ${if (taking) "[이번 주 복용] " else ""}${Scrubber.scrub(r.name, block)} · $period" +
+                (if (detail.isNotBlank()) " · ${Scrubber.scrub(detail, block)}" else ""))
         }
         sb.appendLine()
 

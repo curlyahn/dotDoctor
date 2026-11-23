@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -66,6 +68,44 @@ data class Report(
     /** 받은 소견 */
     val body: String,
 )
+
+/**
+ * 처방받아 먹는 약 한 가지 (약봉투에서 읽었거나 직접 입력).
+ * startDate~endDate 동안 복용. endDate 가 null 이면 기간 모름(계속 복용 중으로 봄).
+ */
+@Entity(tableName = "prescriptions")
+data class Prescription(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** 조제일 yyyy-MM-dd */
+    val dispensedDate: String,
+    val startDate: String,
+    val endDate: String?,
+    val name: String,
+    /** 1회 용량 (예: 1정) */
+    val dose: String?,
+    /** 복용법 (예: 1일 2회 아침·저녁 식후) */
+    val schedule: String?,
+    /** 효능 분류 (예: 위장약) */
+    val purpose: String?,
+    /** "envelope"(약봉투), "manual"(직접) */
+    val source: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface PrescriptionDao {
+    @Query("SELECT * FROM prescriptions ORDER BY startDate DESC, name")
+    fun all(): Flow<List<Prescription>>
+
+    @Query("SELECT * FROM prescriptions ORDER BY startDate DESC, name")
+    suspend fun allNow(): List<Prescription>
+
+    @Insert
+    suspend fun insertAll(items: List<Prescription>): List<Long>
+
+    @Query("DELETE FROM prescriptions WHERE id = :id")
+    suspend fun delete(id: Long)
+}
 
 @Dao
 interface LabDao {
@@ -126,8 +166,8 @@ interface ReportDao {
 }
 
 @Database(
-    entities = [LabResult::class, MedEvent::class, LogEntry::class, Report::class],
-    version = 1,
+    entities = [LabResult::class, MedEvent::class, LogEntry::class, Report::class, Prescription::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -135,11 +175,26 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun meds(): MedDao
     abstract fun logs(): LogDao
     abstract fun reports(): ReportDao
+    abstract fun prescriptions(): PrescriptionDao
 
     companion object {
+        /** v1 → v2: 처방 약 표만 새로 만든다. 기존 표는 건드리지 않는다. */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `prescriptions` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`dispensedDate` TEXT NOT NULL, `startDate` TEXT NOT NULL, `endDate` TEXT, " +
+                        "`name` TEXT NOT NULL, `dose` TEXT, `schedule` TEXT, `purpose` TEXT, " +
+                        "`source` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "dotdoctor.db")
                 // 마이그레이션 없이 표를 지우는 일은 절대 하지 않는다 (fallbackToDestructiveMigration 금지)
+                .addMigrations(MIGRATION_1_2)
                 .build()
     }
 }

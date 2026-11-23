@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 약봉투 촬영용 임시 사진 (읽은 뒤 바로 지움) -->
+    <cache-path name="envelope" path="envelope/" />
+</paths>

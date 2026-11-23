@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 사용자가 미리 보기를 확인하고 '보내기'를 누를 때만 Claude API(api.anthropic.com)에 요약을 보낸다.
+    <!-- 사용자가 미리 보기를 확인하고 '보내기'를 누를 때만 Claude API(api.anthropic.com)에
+         주간 요약 또는 약봉투 글자(사진 아님, 개인정보 줄 삭제 후)를 보낸다.
          다른 곳으로는 보내지 않는다 (주소는 ClaudeClient 에 고정, 암호화되지 않은 http 통신은 막음). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -46,6 +47,17 @@
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
+
+        <!-- 약봉투 촬영: 카메라 앱이 앱 임시 폴더(cache/envelope)에 사진을 쓰게 한다. 글자를 읽은 뒤 바로 지운다. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Android 14 이상: 헬스 커넥트 권한 화면의 '개인정보 처리방침' 링크 -->
         <activity-alias
