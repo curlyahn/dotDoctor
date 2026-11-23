@@ -35,4 +35,4 @@ PC에서는 `private/blocklist.txt`(저장소 밖)에 이름·병원·약 이름
 ## 그 밖의 관례
 - 로컬에서 Gradle 빌드가 안 되므로 GitHub Actions로 빌드한다: `gh workflow run build.yml -R curlyahn/dotDoctor --ref main` (릴리스 생성).
 - UI 문구는 한국어, Dot 앱과 같은 다크 + 라임 스타일. 글씨와 누르는 영역을 크게 (큰 글씨가 기본).
-- 앱 업데이트는 덮어쓰기 설치 (dotDoctor 전용 서명 키, 저장소 밖에 보관) — 기록이 유지되어야 한다.
+- 앱 업데이트는 덮어쓰기 설치 (Dot과 같은 서명 키) — 기록이 유지되어야 한다.
