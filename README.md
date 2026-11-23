@@ -17,7 +17,7 @@
 
 ## 빌드
 
-GitHub Actions에서 빌드한다. Dot·DotTrace와 같은 서명 키를 쓰려면 저장소 Secret `DEBUG_KEYSTORE_BASE64`를 등록한다.
+GitHub Actions에서 빌드한다. 서명 키(base64 텍스트)는 저장소 Secret `DEBUG_KEYSTORE_BASE64`에 등록되어 있다. 키 원본은 저장소 밖에 보관 (SHA-1 `7C:12:3E:6B:CE:2E:44:AB:8C:6F:8E:84:21:C3:E8:DC:61:12:3B:50`).
 Actions 탭 → Build APK → Run workflow 를 누르면 Releases에 APK가 올라간다.
 
 > 이 앱은 의사의 진료를 대신하지 않는다.
