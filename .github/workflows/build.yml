@@ -11,8 +11,8 @@ permissions:
   contents: write   # 태그 빌드 시 GitHub Release 만들기
 
 env:
-  # Dot 앱과 같은 서명 키의 SHA-1 (빌드마다 같은 키로 서명되는지 확인)
-  EXPECTED_SHA1: "12:8B:4E:D3:59:9E:8B:87:BC:0C:ED:64:C2:11:A8:8F:A8:24:9D:4D"
+  # dotDoctor 전용 서명 키의 SHA-1 (빌드마다 같은 키로 서명되는지 확인)
+  EXPECTED_SHA1: "E5:36:AB:87:31:57:CA:8F:CD:DB:7B:A9:62:ED:FD:28:2D:46:62:D0"
 
 jobs:
   build:
@@ -33,7 +33,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # 같은 키로 서명해야 새 버전을 덮어쓰기 설치할 수 있다 (앱 안의 기록이 유지됨).
+      # 같은 키로 서명해야 새 버전을 덮어쓰기 설치할 수 있다 (앱 안의 기록이 유지됨). Secret이 없으면 임시 키로 빌드만 한다.
       - name: Restore signing key
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
