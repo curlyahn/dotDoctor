@@ -46,10 +46,14 @@ object ClaudeClient {
             if (code !in 200..299) {
                 // 오류 메시지만 보여 준다 (보낸 내용은 넣지 않음)
                 val msg = runCatching { JSONObject(text).getJSONObject("error").getString("message") }.getOrNull()
+                val lower = msg.orEmpty().lowercase()
                 throw ApiException(
-                    when (code) {
-                        HttpURLConnection.HTTP_UNAUTHORIZED -> "API 키가 맞지 않아요"
-                        429 -> "요청이 많아 잠시 뒤에 다시 해 주세요"
+                    when {
+                        code == HttpURLConnection.HTTP_BAD_REQUEST &&
+                            listOf("credit", "balance", "billing").any { it in lower } ->
+                            "Claude API 크레딧이 부족해요. Anthropic Console → Billing에서 충전해 주세요"
+                        code == HttpURLConnection.HTTP_UNAUTHORIZED -> "API 키가 맞지 않아요"
+                        code == 429 -> "요청이 많아 잠시 뒤에 다시 해 주세요"
                         else -> "Claude 응답 오류 ($code)" + (msg?.let { ": $it" } ?: "")
                     }
                 )

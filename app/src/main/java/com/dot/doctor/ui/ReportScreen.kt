@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -101,7 +102,8 @@ private fun ReportCard(r: Report, expanded: Boolean, onToggle: () -> Unit) {
 @Composable
 private fun PreviewDialog(d: Draft.Preview, onSend: () -> Unit, onCancel: () -> Unit) {
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxSize().padding(12.dp)) {
+        // 상태 바·내비게이션 바·키보드에 가리지 않게 (보내기 버튼이 항상 보이고 눌리도록)
+        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
             DotCard(Modifier.weight(1f)) {
                 Text("보낼 내용 미리 보기", style = MaterialTheme.typography.titleLarge)
                 Text(
