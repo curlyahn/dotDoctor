@@ -19,6 +19,14 @@ android {
         // GitHub Actions 실행 번호를 빌드 번호로 쓴다 (덮어쓰기 설치가 되도록 항상 증가)
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.1"
+        // 글자 인식(ML Kit) 네이티브 라이브러리는 CPU 종류마다 10MB 안팎이라,
+        // 요즘 휴대폰(갤럭시 포함)이 쓰는 64비트 ARM 것만 넣는다. 에뮬레이터(x86)·구형 32비트 폰은 설치 불가.
+        ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    packaging {
+        // 네이티브 라이브러리를 압축해서 넣어 APK 크기를 줄인다 (설치할 때 풀림)
+        jniLibs { useLegacyPackaging = true }
     }
 
     signingConfigs {
