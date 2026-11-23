@@ -24,9 +24,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dot.doctor.ui.AboutScreen
 import com.dot.doctor.ui.LabsScreen
 import com.dot.doctor.ui.LogScreen
 import com.dot.doctor.ui.MainViewModel
@@ -58,9 +60,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             DotDoctorTheme {
                 var tab by rememberSaveable { mutableIntStateOf(if (fromHealth) 3 else 0) }
+                var about by rememberSaveable { mutableStateOf(false) }
                 val toast by vm.toast.collectAsStateWithLifecycle()
                 LaunchedEffect(toast) {
                     toast?.let { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show(); vm.toastShown() }
+                }
+                if (about) {
+                    AboutScreen(onBack = { about = false })
+                    return@DotDoctorTheme
                 }
                 Scaffold(
                     containerColor = Dot.Ink,
@@ -89,7 +96,7 @@ class MainActivity : ComponentActivity() {
                         0 -> ReportScreen(vm, padding)
                         1 -> LabsScreen(vm, padding)
                         2 -> LogScreen(vm, padding)
-                        else -> SettingsScreen(vm, padding)
+                        else -> SettingsScreen(vm, padding, onOpenAbout = { about = true })
                     }
                 }
             }

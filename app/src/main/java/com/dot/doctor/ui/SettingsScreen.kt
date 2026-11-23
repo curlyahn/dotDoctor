@@ -1,7 +1,11 @@
 package com.dot.doctor.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,7 +41,7 @@ import com.dot.doctor.health.HealthReader
 import com.dot.doctor.ui.theme.Dot
 
 @Composable
-fun SettingsScreen(vm: MainViewModel, padding: PaddingValues) {
+fun SettingsScreen(vm: MainViewModel, padding: PaddingValues, onOpenAbout: () -> Unit) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val granted by vm.hcGranted.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
@@ -142,6 +146,16 @@ fun SettingsScreen(vm: MainViewModel, padding: PaddingValues) {
             Text("• 이름·생년월일·병원 이름은 요약에 넣지 않아요.", style = MaterialTheme.typography.bodySmall)
             Text("• 앱을 지우면 기록도 모두 지워져요.", style = MaterialTheme.typography.bodySmall, color = Dot.Amber)
         }
-        Text("dotDoctor 0.1 · 의사의 진료를 대신하지 않아요", color = Dot.Faint, style = MaterialTheme.typography.bodySmall)
+        SectionLabel("정보")
+        DotCard(Modifier.clickable(onClick = onOpenAbout)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("정보 · 도움말", style = MaterialTheme.typography.titleMedium)
+                    Text("사용법, 개인정보, 만든 이, 앱 버전", style = MaterialTheme.typography.bodySmall, color = Dot.Muted)
+                }
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = Dot.Muted)
+            }
+        }
+        Text("의사의 진료를 대신하지 않아요", color = Dot.Faint, style = MaterialTheme.typography.bodySmall)
     }
 }

@@ -1,6 +1,10 @@
 package com.dot.doctor.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dot.doctor.data.Report
 import com.dot.doctor.report.ReportBuilder
@@ -46,6 +49,12 @@ fun ReportScreen(vm: MainViewModel, padding: PaddingValues) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var openId by remember { mutableLongStateOf(-1L) }
     val week = ReportBuilder.lastWeekStart()
+
+    val preview = draft
+    if (preview is Draft.Preview) {
+        PreviewPage(preview, padding, onSend = { vm.send(preview) }, onCancel = vm::cancelDraft)
+        return
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -78,7 +87,7 @@ fun ReportScreen(vm: MainViewModel, padding: PaddingValues) {
     }
 
     when (val d = draft) {
-        is Draft.Preview -> PreviewDialog(d, onSend = { vm.send(d) }, onCancel = vm::cancelDraft)
+        is Draft.Preview -> Unit   // 위에서 화면 전체로 그림
         Draft.Building -> BusyDialog("요약을 만드는 중…")
         Draft.Sending -> BusyDialog("Claude가 읽고 있어요… (1분쯤 걸려요)")
         is Draft.Failed -> MessageDialog(d.message, onClose = vm::cancelDraft)
@@ -99,25 +108,32 @@ private fun ReportCard(r: Report, expanded: Boolean, onToggle: () -> Unit) {
     }
 }
 
+/**
+ * 보낼 내용 미리 보기. 팝업(Dialog) 창은 휴대폰에 따라 내비게이션 바 아래까지 그려져서
+ * 버튼이 가려지므로, 리포트 탭 화면 자체를 미리 보기로 바꿔 그린다 (Scaffold 여백 안 → 항상 보임).
+ */
 @Composable
-private fun PreviewDialog(d: Draft.Preview, onSend: () -> Unit, onCancel: () -> Unit) {
-    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        // 상태 바·내비게이션 바·키보드에 가리지 않게 (보내기 버튼이 항상 보이고 눌리도록)
-        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
-            DotCard(Modifier.weight(1f)) {
-                Text("보낼 내용 미리 보기", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "아래 글자 그대로만 Claude API로 갑니다. 이름·생년월일·병원 이름은 넣지 않았어요. 빼고 싶은 단어가 보이면 취소하고 설정의 '보내지 않을 단어'에 추가하세요.",
-                    style = MaterialTheme.typography.bodySmall, color = Dot.Amber,
-                )
-                Box(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    Text(d.text, style = MaterialTheme.typography.bodySmall)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GhostButton("취소", Modifier.weight(1f), onClick = onCancel)
-                    BigButton("보내기", Modifier.weight(1f), onClick = onSend)
-                }
-            }
+private fun PreviewPage(d: Draft.Preview, padding: PaddingValues, onSend: () -> Unit, onCancel: () -> Unit) {
+    BackHandler(onBack = onCancel)
+    Column(
+        Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("보낼 내용 미리 보기", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "아래 글자 그대로만 Claude API로 갑니다. 이름·생년월일·병원 이름은 넣지 않았어요. 빼고 싶은 단어가 보이면 취소하고 설정의 '보내지 않을 단어'에 추가하세요.",
+            style = MaterialTheme.typography.bodySmall, color = Dot.Amber,
+        )
+        Box(
+            Modifier.weight(1f).fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp)).background(Dot.Surface)
+                .verticalScroll(rememberScrollState()).padding(18.dp)
+        ) {
+            Text(d.text, style = MaterialTheme.typography.bodySmall)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            GhostButton("취소", Modifier.weight(1f), onClick = onCancel)
+            BigButton("보내기", Modifier.weight(1f), onClick = onSend)
         }
     }
 }
