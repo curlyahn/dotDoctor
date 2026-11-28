@@ -37,45 +37,29 @@ import com.dot.doctor.data.LabItem
 import com.dot.doctor.data.LabItems
 import com.dot.doctor.data.LabResult
 import com.dot.doctor.data.MedEvent
-import com.dot.doctor.data.Prescription
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.FileProvider
+import com.dot.doctor.capture.CaptureKind
 import com.dot.doctor.ui.theme.Dot
 import java.time.LocalDate
 
 val DATE_RE = Regex("""\d{4}-\d{2}(-\d{2})?""")
 
+/** 검사 기록 탭: 지난 기록(HTML) + 새 결과지(사진·카메라·직접 입력)를 항목별로 이어서 추적 */
 @Composable
 fun LabsScreen(vm: MainViewModel, padding: PaddingValues) {
     val labs by vm.labs.collectAsStateWithLifecycle()
     val meds by vm.meds.collectAsStateWithLifecycle()
+    val env by vm.env.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf<String?>(null) }
     var addLab by remember { mutableStateOf(false) }
     var addMed by remember { mutableStateOf(false) }
+    val cap = rememberCapture(vm)
 
     // 파일은 휴대폰 안에서 읽기만 하고 복사·전송하지 않는다
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importHtml(uri)
     }
 
-    val rx by vm.prescriptions.collectAsStateWithLifecycle()
-    val env by vm.env.collectAsStateWithLifecycle()
-    val ctx = LocalContext.current
-
-    // 약봉투 촬영: 앱 임시 폴더에 찍고, 글자를 읽은 뒤 바로 지운다 (갤러리에 남지 않음)
-    // 카메라 앱으로 넘어간 사이 화면이 다시 만들어져도 경로를 잃지 않게 저장
-    var shotPath by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val f = shotPath?.let { java.io.File(it) }
-        if (ok && f != null) vm.readEnvelope(FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f), f) else f?.delete()
-    }
-    // 갤러리에서 고르기: 사진 선택기(권한 필요 없음), 읽기만 한다
-    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.readEnvelope(uri, null)
-    }
-
-    if (EnvelopeFlow(vm, env, padding)) return
+    if (CaptureFlow(vm, env, padding)) return
 
     val byCode = labs.groupBy { it.code }
     LazyColumn(
@@ -84,48 +68,33 @@ fun LabsScreen(vm: MainViewModel, padding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Text("검사", style = MaterialTheme.typography.headlineSmall)
-            Text("${labs.map { it.date }.distinct().size}번의 검사 · 휴대폰에만 저장", style = MaterialTheme.typography.bodyMedium, color = Dot.Muted)
+            Text("검사 기록", style = MaterialTheme.typography.headlineSmall)
+            val dates = labs.map { it.date }.distinct().sorted()
+            Text(
+                if (dates.isEmpty()) "휴대폰에만 저장" else "${dates.first()} ~ ${dates.last()} · ${dates.size}번의 검사 · 휴대폰에만 저장",
+                style = MaterialTheme.typography.bodyMedium, color = Dot.Muted,
+            )
         }
+        item { SectionLabel("새 검사 결과 넣기") }
+        item { CaptureButtons(CaptureKind.LAB_SHEET, cap) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GhostButton("HTML 가져오기", Modifier.weight(1f)) { picker.launch(arrayOf("text/html", "*/*")) }
                 GhostButton("+ 직접 입력", Modifier.weight(1f)) { addLab = true }
+                GhostButton("HTML 가져오기", Modifier.weight(1f)) { picker.launch(arrayOf("text/html", "*/*")) }
             }
         }
         val present = LabItems.ALL.filter { byCode[it.code]?.isNotEmpty() == true }
-        if (present.isEmpty()) item { Text("검사 기록이 없어요. HTML 파일을 가져오거나 직접 입력하세요.", color = Dot.Muted) }
+        if (present.isEmpty()) item { Text("검사 기록이 없어요. 결과지를 찍거나, 지난 기록 HTML을 가져오세요.", color = Dot.Muted) }
+        if (present.isNotEmpty()) item { SectionLabel("항목별 추이") }
         items(present, key = { it.code }) { item ->
             LabCard(item, byCode[item.code].orEmpty().sortedBy { it.date }, open == item.code, onDelete = vm::deleteLab) {
                 open = if (open == item.code) null else item.code
             }
         }
-        item { SectionLabel("처방 약") }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GhostButton("약봉투 찍기", Modifier.weight(1f)) {
-                    val dir = java.io.File(ctx.cacheDir, "envelope").apply { mkdirs() }
-                    val f = java.io.File(dir, "shot_${System.currentTimeMillis()}.jpg")
-                    shotPath = f.absolutePath
-                    camera.launch(FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f))
-                }
-                GhostButton("사진 고르기", Modifier.weight(1f)) {
-                    gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
-            }
-        }
-        val today = java.time.LocalDate.now().toString()
-        val (current, past) = rx.partition { (it.endDate ?: "9999") >= today }
-        if (rx.isEmpty()) item { Text("약봉투를 찍거나 사진을 고르면 약과 복용 기간을 자동으로 채워 줘요.", color = Dot.Muted) }
-        if (current.isNotEmpty()) item { Text("복용 중", style = MaterialTheme.typography.labelMedium, color = Dot.Lime) }
-        items(current, key = { "rx" + it.id }) { r -> RxRow(r, true) { vm.deletePrescription(r.id) } }
-        if (past.isNotEmpty()) item { Text("지난 처방", style = MaterialTheme.typography.labelMedium, color = Dot.Muted) }
-        items(past.take(20), key = { "rx" + it.id }) { r -> RxRow(r, false) { vm.deletePrescription(r.id) } }
-        item { GhostButton("+ 처방 약 직접 입력", Modifier.fillMaxWidth()) { vm.manualPrescription() } }
 
-        item { SectionLabel("약 복용 변화") }
+        item { SectionLabel("약 복용 변화 (검사 추이와 같이 보기)") }
         items(meds, key = { "m" + it.id }) { m -> MedRow(m) { vm.deleteMed(m.id) } }
-        item { GhostButton("+ 약 기록 추가", Modifier.fillMaxWidth()) { addMed = true } }
+        item { GhostButton("+ 약 복용 변화 추가", Modifier.fillMaxWidth()) { addMed = true } }
     }
 
     if (addLab) AddLabDialog(onDismiss = { addLab = false }) { d, c, v -> vm.addLab(d, c, v); addLab = false }
@@ -145,6 +114,15 @@ private fun LabCard(item: LabItem, list: List<LabResult>, expanded: Boolean, onD
             Text(item.format(last.value), style = MaterialTheme.typography.displaySmall, color = statusColor(st))
             Text("  ${item.unit}  ·  ${last.date}", style = MaterialTheme.typography.bodySmall, color = Dot.Muted)
         }
+        // 지난번 검사와 비교 (추적 관찰)
+        list.getOrNull(list.size - 2)?.let { prev ->
+            val diff = last.value - prev.value
+            val arrow = when { diff > 0 -> "▲"; diff < 0 -> "▼"; else -> "=" }
+            Text(
+                "지난번(${prev.date}) ${item.format(prev.value)} → $arrow ${item.format(kotlin.math.abs(diff))}",
+                style = MaterialTheme.typography.bodySmall, color = Dot.Muted,
+            )
+        }
         val recent = list.takeLast(12)
         Sparkline(
             values = recent.map { it.value },
@@ -160,27 +138,6 @@ private fun LabCard(item: LabItem, list: List<LabResult>, expanded: Boolean, onD
                     if (r.source == "calc") Text("  계산", color = Dot.Faint, style = MaterialTheme.typography.labelSmall)
                     if (r.source != "html") TextButton(onClick = { onDelete(r.id) }) { Text("삭제", color = Dot.Coral) }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RxRow(r: Prescription, current: Boolean, onDelete: () -> Unit) {
-    var confirm by remember { mutableStateOf(false) }
-    DotCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(r.name, style = MaterialTheme.typography.titleMedium, color = if (current) Dot.Text else Dot.Muted)
-                val detail = listOfNotNull(r.dose, r.schedule).joinToString(" · ")
-                if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodySmall, color = Dot.Muted)
-                Text(
-                    "${r.startDate} ~ ${r.endDate ?: "계속"}" + (r.purpose?.let { " · $it" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall, color = if (current) Dot.Lime else Dot.Faint,
-                )
-            }
-            TextButton(onClick = { if (confirm) onDelete() else confirm = true }) {
-                Text(if (confirm) "정말 삭제" else "삭제", color = if (confirm) Dot.Coral else Dot.Muted)
             }
         }
     }

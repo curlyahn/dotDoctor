@@ -67,7 +67,8 @@ fun ReportScreen(vm: MainViewModel, padding: PaddingValues) {
         }
         item {
             DotCard {
-                Text("지난주 (${week} ~ ${week.plusDays(6)})", style = MaterialTheme.typography.titleMedium)
+                Text("지난주 ${week.monthValue}/${week.dayOfMonth}(월) ~ ${week.plusDays(6).monthValue}/${week.plusDays(6).dayOfMonth}(일)", style = MaterialTheme.typography.titleMedium)
+                Text("심장·혈압 · 걸음·체중 등 일상 · 수면 기록으로 만들어요 (헬스 커넥트)", style = MaterialTheme.typography.bodySmall, color = Dot.Muted)
                 Text(
                     "보낼 요약을 먼저 보여 드려요. 확인하고 '보내기'를 눌러야만 Claude에 전달됩니다.",
                     style = MaterialTheme.typography.bodySmall, color = Dot.Muted,

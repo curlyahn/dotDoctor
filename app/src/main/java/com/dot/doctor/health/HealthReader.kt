@@ -3,12 +3,14 @@ package com.dot.doctor.health
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.aggregate.AggregateMetric
+import androidx.health.connect.client.aggregate.AggregationResult
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BloodGlucoseRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
+import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
@@ -17,27 +19,46 @@ import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.Period
 import java.time.ZoneId
+import kotlin.reflect.KClass
 
 /** 하루 값 (없으면 null) */
 data class DayHealth(
     val date: LocalDate,
+    // 일상
     val steps: Long? = null,
-    val sleepMin: Long? = null,
+    val exerciseMin: Long? = null,
+    val weightKg: Double? = null,
+    // 심장
     val restingHr: Long? = null,
     val avgHr: Long? = null,
-    val weightKg: Double? = null,
+    val maxHr: Long? = null,
+    val minHr: Long? = null,
     val sys: Double? = null,
     val dia: Double? = null,
-    val exerciseMin: Long? = null,
+    // 수면 (그날 아침에 깬 잠 기준)
+    val sleepMin: Long? = null,
+    val deepMin: Long? = null,
+    val remMin: Long? = null,
+    val lightMin: Long? = null,
+    val awakeMin: Long? = null,
+    val bedTime: LocalTime? = null,
+    val wakeTime: LocalTime? = null,
 )
 
-/** 이번 주 7일 + 그 전 4주(비교 기준) */
+/** 혈압 한 번 측정 */
+data class BpReading(val time: LocalDateTime, val sys: Double, val dia: Double)
+
+/** 지난주 월~일 7일 + 그 전 4주(비교 기준) */
 data class HealthWindow(
     val week: List<DayHealth>,
     val baseline: List<DayHealth>,
+    val bpWeek: List<BpReading>,
     val glucoseWeek: List<Double>,
     val spo2Week: List<Double>,
     /** 읽지 못한 항목과 이유 (리포트 미리 보기에 보여 줘서 원인을 알 수 있게) */
@@ -78,28 +99,15 @@ class HealthReader(private val context: Context) {
         // 다른 앱 데이터는 권한을 준 날로부터 30일 전까지만 읽을 수 있다 (헬스 커넥트 규칙)
         val from = weekStart.minusDays(28)
         val to = weekStart.plusDays(7)
-
-        fun has(c: kotlin.reflect.KClass<out androidx.health.connect.client.records.Record>) =
-            HealthPermission.getReadPermission(c) in ok
-
-        val metrics = buildSet<AggregateMetric<*>> {
-            if (has(StepsRecord::class)) add(StepsRecord.COUNT_TOTAL)
-            if (has(RestingHeartRateRecord::class)) add(RestingHeartRateRecord.BPM_AVG)
-            if (has(HeartRateRecord::class)) add(HeartRateRecord.BPM_AVG)
-            if (has(WeightRecord::class)) add(WeightRecord.WEIGHT_AVG)
-            if (has(BloodPressureRecord::class)) {
-                add(BloodPressureRecord.SYSTOLIC_AVG); add(BloodPressureRecord.DIASTOLIC_AVG)
-            }
-            if (has(ExerciseSessionRecord::class)) add(ExerciseSessionRecord.EXERCISE_DURATION_TOTAL)
-        }
-
         val days = mutableMapOf<LocalDate, DayHealth>()
         val problems = mutableListOf<String>()
-        if (!has(StepsRecord::class)) problems += "걸음 수 읽기 권한 없음"
 
-        // 항목마다 따로 묻는다: 하나가 실패해도(예: 운동 기록 형식 문제) 걸음 수 같은 다른 항목은 읽히도록
-        suspend fun daily(name: String, set: Set<AggregateMetric<*>>, apply: (DayHealth, androidx.health.connect.client.aggregate.AggregationResult) -> DayHealth) {
-            if (set.isEmpty()) return
+        fun has(c: KClass<out Record>) = HealthPermission.getReadPermission(c) in ok
+        fun upd(d: LocalDate, f: (DayHealth) -> DayHealth) { days[d] = f(days[d] ?: DayHealth(d)) }
+
+        // 항목마다 따로 묻는다: 하나가 실패해도 다른 항목은 읽히도록
+        suspend fun daily(name: String, c: KClass<out Record>, set: Set<AggregateMetric<*>>, apply: (DayHealth, AggregationResult) -> DayHealth) {
+            if (!has(c)) { problems += "$name 읽기 권한 없음"; return }
             runCatching {
                 client.aggregateGroupByPeriod(
                     AggregateGroupByPeriodRequest(
@@ -108,45 +116,63 @@ class HealthReader(private val context: Context) {
                         timeRangeSlicer = Period.ofDays(1),
                     )
                 )
-            }.onSuccess { groups ->
-                for (g in groups) {
-                    val d = g.startTime.toLocalDate()
-                    days[d] = apply(days[d] ?: DayHealth(d), g.result)
-                }
-            }.onFailure { problems += "$name 읽기 오류(${it.javaClass.simpleName})" }
+            }.onSuccess { groups -> groups.forEach { g -> upd(g.startTime.toLocalDate()) { apply(it, g.result) } } }
+                .onFailure { problems += "$name 읽기 오류(${it.javaClass.simpleName})" }
         }
 
-        daily("걸음 수", metrics.filter { it == StepsRecord.COUNT_TOTAL }.toSet()) { d, r -> d.copy(steps = r[StepsRecord.COUNT_TOTAL]) }
-        daily("안정 심박", metrics.filter { it == RestingHeartRateRecord.BPM_AVG }.toSet()) { d, r -> d.copy(restingHr = r[RestingHeartRateRecord.BPM_AVG]) }
-        daily("심박", metrics.filter { it == HeartRateRecord.BPM_AVG }.toSet()) { d, r -> d.copy(avgHr = r[HeartRateRecord.BPM_AVG]) }
-        daily("체중", metrics.filter { it == WeightRecord.WEIGHT_AVG }.toSet()) { d, r -> d.copy(weightKg = r[WeightRecord.WEIGHT_AVG]?.inKilograms) }
-        daily("혈압", metrics.filter { it == BloodPressureRecord.SYSTOLIC_AVG || it == BloodPressureRecord.DIASTOLIC_AVG }.toSet()) { d, r ->
-            d.copy(sys = r[BloodPressureRecord.SYSTOLIC_AVG]?.inMillimetersOfMercury, dia = r[BloodPressureRecord.DIASTOLIC_AVG]?.inMillimetersOfMercury)
-        }
-        daily("운동", metrics.filter { it == ExerciseSessionRecord.EXERCISE_DURATION_TOTAL }.toSet()) { d, r ->
+        // ── 일상 ──
+        daily("걸음 수", StepsRecord::class, setOf(StepsRecord.COUNT_TOTAL)) { d, r -> d.copy(steps = r[StepsRecord.COUNT_TOTAL]) }
+        daily("운동", ExerciseSessionRecord::class, setOf(ExerciseSessionRecord.EXERCISE_DURATION_TOTAL)) { d, r ->
             d.copy(exerciseMin = r[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.toMinutes())
         }
-        if (has(StepsRecord::class) && days.values.none { it.steps != null && it.steps > 0 }) {
-            problems += "걸음 수 기록이 헬스 커넥트에 없음 (삼성헬스 → 설정 → 헬스 커넥트에서 걸음 수 동기화 확인)"
+        daily("체중", WeightRecord::class, setOf(WeightRecord.WEIGHT_AVG)) { d, r -> d.copy(weightKg = r[WeightRecord.WEIGHT_AVG]?.inKilograms) }
+
+        // ── 심장·혈압 ──
+        daily("안정 심박", RestingHeartRateRecord::class, setOf(RestingHeartRateRecord.BPM_AVG)) { d, r -> d.copy(restingHr = r[RestingHeartRateRecord.BPM_AVG]) }
+        daily("심박", HeartRateRecord::class, setOf(HeartRateRecord.BPM_AVG, HeartRateRecord.BPM_MAX, HeartRateRecord.BPM_MIN)) { d, r ->
+            d.copy(avgHr = r[HeartRateRecord.BPM_AVG], maxHr = r[HeartRateRecord.BPM_MAX], minHr = r[HeartRateRecord.BPM_MIN])
+        }
+        daily("혈압", BloodPressureRecord::class, setOf(BloodPressureRecord.SYSTOLIC_AVG, BloodPressureRecord.DIASTOLIC_AVG)) { d, r ->
+            d.copy(sys = r[BloodPressureRecord.SYSTOLIC_AVG]?.inMillimetersOfMercury, dia = r[BloodPressureRecord.DIASTOLIC_AVG]?.inMillimetersOfMercury)
         }
 
-        // 수면은 깬 날짜 기준으로 합친다 (밤 11시~아침 6시 → 아침 날짜)
+        val weekRange = TimeRangeFilter.between(weekStart.atStartOfDay(zone).toInstant(), to.atStartOfDay(zone).toInstant())
+        val bp = if (has(BloodPressureRecord::class)) runCatching {
+            client.readRecords(ReadRecordsRequest(BloodPressureRecord::class, weekRange)).records.map {
+                BpReading(LocalDateTime.ofInstant(it.time, zone), it.systolic.inMillimetersOfMercury, it.diastolic.inMillimetersOfMercury)
+            }.sortedBy { it.time }
+        }.getOrDefault(emptyList()) else emptyList()
+
+        // ── 수면: 깬 날짜 기준, 단계별 시간과 잠든·깬 시각 ──
         if (has(SleepSessionRecord::class)) {
-            val sleeps = runCatching {
+            runCatching {
                 client.readRecords(
                     ReadRecordsRequest(
                         SleepSessionRecord::class,
                         TimeRangeFilter.between(from.minusDays(1).atStartOfDay(zone).toInstant(), to.atStartOfDay(zone).toInstant()),
                     )
                 ).records
-            }.getOrDefault(emptyList())
-            sleeps.groupBy { it.endTime.atZone(zone).toLocalDate() }.forEach { (d, list) ->
-                val min = list.sumOf { Duration.between(it.startTime, it.endTime).toMinutes() }
-                days[d] = (days[d] ?: DayHealth(d)).copy(sleepMin = min)
-            }
-        }
+            }.onSuccess { sleeps ->
+                sleeps.groupBy { it.endTime.atZone(zone).toLocalDate() }.forEach { (d, list) ->
+                    fun stage(type: Int) = list.sumOf { s -> s.stages.filter { it.stage == type }.sumOf { minutes(it.startTime, it.endTime) } }
+                    val main = list.maxBy { minutes(it.startTime, it.endTime) }   // 가장 긴 잠 = 밤잠
+                    val hasStages = list.any { it.stages.isNotEmpty() }
+                    upd(d) {
+                        it.copy(
+                            sleepMin = list.sumOf { s -> minutes(s.startTime, s.endTime) } -
+                                (if (hasStages) stage(SleepSessionRecord.STAGE_TYPE_AWAKE) else 0L),
+                            deepMin = if (hasStages) stage(SleepSessionRecord.STAGE_TYPE_DEEP) else null,
+                            remMin = if (hasStages) stage(SleepSessionRecord.STAGE_TYPE_REM) else null,
+                            lightMin = if (hasStages) stage(SleepSessionRecord.STAGE_TYPE_LIGHT) else null,
+                            awakeMin = if (hasStages) stage(SleepSessionRecord.STAGE_TYPE_AWAKE) else null,
+                            bedTime = main.startTime.atZone(zone).toLocalTime(),
+                            wakeTime = main.endTime.atZone(zone).toLocalTime(),
+                        )
+                    }
+                }
+            }.onFailure { problems += "수면 읽기 오류(${it.javaClass.simpleName})" }
+        } else problems += "수면 읽기 권한 없음"
 
-        val weekRange = TimeRangeFilter.between(weekStart.atStartOfDay(zone).toInstant(), to.atStartOfDay(zone).toInstant())
         val glucose = if (has(BloodGlucoseRecord::class)) runCatching {
             client.readRecords(ReadRecordsRequest(BloodGlucoseRecord::class, weekRange)).records.map { it.level.inMilligramsPerDeciliter }
         }.getOrDefault(emptyList()) else emptyList()
@@ -155,14 +181,21 @@ class HealthReader(private val context: Context) {
         }.getOrDefault(emptyList()) else emptyList()
 
         fun range(a: LocalDate, b: LocalDate) = generateSequence(a) { it.plusDays(1) }.takeWhile { it < b }.map { days[it] ?: DayHealth(it) }.toList()
+        val week = range(weekStart, to)
+        if (has(StepsRecord::class) && week.none { (it.steps ?: 0) > 0 }) {
+            problems += "지난주 걸음 수 기록이 헬스 커넥트에 없음 (삼성헬스 → 설정 → 헬스 커넥트에서 걸음 수 허용 확인)"
+        }
         return HealthWindow(
-            week = range(weekStart, to),
+            week = week,
             baseline = range(from, weekStart),
+            bpWeek = bp,
             glucoseWeek = glucose,
             spo2Week = spo2,
             problems = problems,
         )
     }
+
+    private fun minutes(a: Instant, b: Instant) = Duration.between(a, b).toMinutes()
 
     /**
      * 설정 화면 '점검하기'용: 항목별 권한과 최근 7일 기록 개수 (값은 보여 주지 않음, 휴대폰 밖으로도 안 나감)
@@ -174,23 +207,21 @@ class HealthReader(private val context: Context) {
         }
         val ok = granted()
         val zone = ZoneId.systemDefault()
-        val range = TimeRangeFilter.between(LocalDate.now().minusDays(7).atStartOfDay(zone).toInstant(), java.time.Instant.now())
-        val out = mutableListOf<Pair<String, String>>()
-        out += check("걸음 수", ok, StepsRecord::class, range)
-        out += check("수면", ok, SleepSessionRecord::class, range)
-        out += check("심박", ok, HeartRateRecord::class, range)
-        out += check("안정 심박", ok, RestingHeartRateRecord::class, range)
-        out += check("체중", ok, WeightRecord::class, range)
-        out += check("혈압", ok, BloodPressureRecord::class, range)
-        out += check("혈당", ok, BloodGlucoseRecord::class, range)
-        out += check("산소포화도", ok, OxygenSaturationRecord::class, range)
-        out += check("운동", ok, ExerciseSessionRecord::class, range)
-        return out
+        val range = TimeRangeFilter.between(LocalDate.now().minusDays(7).atStartOfDay(zone).toInstant(), Instant.now())
+        return listOf(
+            check("걸음 수", ok, StepsRecord::class, range),
+            check("수면", ok, SleepSessionRecord::class, range),
+            check("심박", ok, HeartRateRecord::class, range),
+            check("안정 심박", ok, RestingHeartRateRecord::class, range),
+            check("체중", ok, WeightRecord::class, range),
+            check("혈압", ok, BloodPressureRecord::class, range),
+            check("혈당", ok, BloodGlucoseRecord::class, range),
+            check("산소포화도", ok, OxygenSaturationRecord::class, range),
+            check("운동", ok, ExerciseSessionRecord::class, range),
+        )
     }
 
-    private suspend fun <T : androidx.health.connect.client.records.Record> check(
-        name: String, ok: Set<String>, c: kotlin.reflect.KClass<T>, range: TimeRangeFilter,
-    ): Pair<String, String> =
+    private suspend fun <T : Record> check(name: String, ok: Set<String>, c: KClass<T>, range: TimeRangeFilter): Pair<String, String> =
         name to if (HealthPermission.getReadPermission(c) !in ok) "권한 없음" else runCatching {
             val res = client.readRecords(ReadRecordsRequest(c, range, pageSize = 1000))
             val n = res.records.size

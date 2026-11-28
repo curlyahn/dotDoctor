@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- 사용자가 미리 보기를 확인하고 '보내기'를 누를 때만 Claude API(api.anthropic.com)에
-         주간 요약 또는 약봉투 글자(사진 아님, 개인정보 줄 삭제 후)를 보낸다.
+         주간 요약 또는 영수증·약봉투·결과지에서 읽은 글자(사진 아님, 개인정보 줄 삭제 후)를 보낸다.
          다른 곳으로는 보내지 않는다 (주소는 ClaudeClient 에 고정, 암호화되지 않은 http 통신은 막음). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

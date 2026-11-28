@@ -92,6 +92,45 @@ data class Prescription(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+/**
+ * 병원·약국에 다녀온 기록 (영수증·약봉투에서 읽었거나 직접 입력).
+ * 병원 이름은 저장하지 않고 종류(의원·병원·약국 등)만 둔다.
+ */
+@Entity(tableName = "visits")
+data class Visit(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** yyyy-MM-dd */
+    val date: String,
+    /** HOSPITAL, PHARMACY */
+    val kind: String,
+    /** 의원·병원·종합병원·치과·한의원·약국 등 */
+    val placeType: String?,
+    /** 진료과 (예: 내과) */
+    val department: String?,
+    /** 외래·입원·응급 */
+    val visitType: String?,
+    /** 주요 진료·검사 항목 (예: 진찰료, 혈액검사, 초음파) */
+    val items: String?,
+    /** 본인 부담 총액 (원) */
+    val amount: Int?,
+    val memo: String?,
+    /** "receipt", "envelope", "manual" */
+    val source: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Dao
+interface VisitDao {
+    @Query("SELECT * FROM visits ORDER BY date DESC, createdAt DESC")
+    fun all(): Flow<List<Visit>>
+
+    @Insert
+    suspend fun insert(v: Visit): Long
+
+    @Query("DELETE FROM visits WHERE id = :id")
+    suspend fun delete(id: Long)
+}
+
 @Dao
 interface PrescriptionDao {
     @Query("SELECT * FROM prescriptions ORDER BY startDate DESC, name")
@@ -166,8 +205,8 @@ interface ReportDao {
 }
 
 @Database(
-    entities = [LabResult::class, MedEvent::class, LogEntry::class, Report::class, Prescription::class],
-    version = 2,
+    entities = [LabResult::class, MedEvent::class, LogEntry::class, Report::class, Prescription::class, Visit::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -176,8 +215,21 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun logs(): LogDao
     abstract fun reports(): ReportDao
     abstract fun prescriptions(): PrescriptionDao
+    abstract fun visits(): VisitDao
 
     companion object {
+        /** v2 → v3: 병원·약국 방문 표만 새로 만든다. 기존 표는 건드리지 않는다. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `visits` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `date` TEXT NOT NULL, `kind` TEXT NOT NULL, " +
+                        "`placeType` TEXT, `department` TEXT, `visitType` TEXT, `items` TEXT, `amount` INTEGER, `memo` TEXT, " +
+                        "`source` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         /** v1 → v2: 처방 약 표만 새로 만든다. 기존 표는 건드리지 않는다. */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -194,7 +246,7 @@ abstract class AppDatabase : RoomDatabase() {
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "dotdoctor.db")
                 // 마이그레이션 없이 표를 지우는 일은 절대 하지 않는다 (fallbackToDestructiveMigration 금지)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

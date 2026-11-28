@@ -167,8 +167,8 @@ fun SettingsScreen(vm: MainViewModel, padding: PaddingValues, onOpenAbout: () ->
         SectionLabel("개인정보")
         DotCard {
             Text("• 모든 기록은 이 휴대폰 앱 안에만 있어요. 구글 백업에도 들어가지 않아요.", style = MaterialTheme.typography.bodySmall)
-            Text("• 휴대폰 밖으로 나가는 건 미리 보기에서 '보내기'를 누른 주간 요약과 약봉투 글자뿐이에요 (Claude API).", style = MaterialTheme.typography.bodySmall)
-            Text("• 약봉투 사진은 보내지도 남기지도 않아요. 휴대폰 안에서 글자만 읽고 바로 지워요.", style = MaterialTheme.typography.bodySmall)
+            Text("• 휴대폰 밖으로 나가는 건 미리 보기에서 '보내기'를 누른 주간 요약과, 영수증·약봉투·결과지에서 읽은 글자뿐이에요 (Claude API).", style = MaterialTheme.typography.bodySmall)
+            Text("• 사진은 보내지도 남기지도 않아요. 휴대폰 안에서 글자만 읽고 바로 지워요. 병원 이름은 저장하지 않아요.", style = MaterialTheme.typography.bodySmall)
             Text("• 이름·생년월일·병원 이름은 요약에 넣지 않아요.", style = MaterialTheme.typography.bodySmall)
             Text("• 앱을 지우면 기록도 모두 지워져요.", style = MaterialTheme.typography.bodySmall, color = Dot.Amber)
         }

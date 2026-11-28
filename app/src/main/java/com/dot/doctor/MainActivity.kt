@@ -12,8 +12,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Biotech
-import androidx.compose.material.icons.outlined.EditNote
-import androidx.compose.material.icons.outlined.MedicalServices
+import androidx.compose.material.icons.outlined.LocalHospital
+import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -30,7 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dot.doctor.ui.AboutScreen
 import com.dot.doctor.ui.LabsScreen
-import com.dot.doctor.ui.LogScreen
+import com.dot.doctor.ui.VisitsScreen
 import com.dot.doctor.ui.MainViewModel
 import com.dot.doctor.ui.ReportScreen
 import com.dot.doctor.ui.SettingsScreen
@@ -74,9 +74,9 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar(containerColor = Dot.Surface) {
                             listOf(
-                                Triple("리포트", Icons.Outlined.MedicalServices, 0),
-                                Triple("검사", Icons.Outlined.Biotech, 1),
-                                Triple("기록", Icons.Outlined.EditNote, 2),
+                                Triple("리포트", Icons.Outlined.MonitorHeart, 0),
+                                Triple("병원·약국", Icons.Outlined.LocalHospital, 1),
+                                Triple("검사 기록", Icons.Outlined.Biotech, 2),
                                 Triple("설정", Icons.Outlined.Settings, 3),
                             ).forEach { (label, icon, i) ->
                                 NavigationBarItem(
@@ -94,8 +94,8 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     when (tab) {
                         0 -> ReportScreen(vm, padding)
-                        1 -> LabsScreen(vm, padding)
-                        2 -> LogScreen(vm, padding)
+                        1 -> VisitsScreen(vm, padding)
+                        2 -> LabsScreen(vm, padding)
                         else -> SettingsScreen(vm, padding, onOpenAbout = { about = true })
                     }
                 }
